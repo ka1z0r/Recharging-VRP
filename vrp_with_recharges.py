@@ -7,18 +7,7 @@ def main():
     solver = pywraplp.Solver('SolveProblem',
                              pywraplp.Solver.CBC_MIXED_INTEGER_PROGRAMMING)
     data = {}
-    # нужно ли два массива? одним же можно обойтись
-    locations_1 = np.array(
-        [[54.177909, 87.1071625], [54.154644, 87.1895599], [54.209695, 87.1238995], [54.1900136, 87.0737743],
-         [54.1626852, 87.1229553], [54.1491651, 87.1049309], [54.1433334, 87.1317959], [54.1380541, 87.171278],
-         [54.1501202, 87.2331619], [54.162233, 87.1895599], [54.1770048, 87.2292137], [54.1927756, 87.2426033],
-         [54.1778085, 87.1809769], [54.1903652, 87.138319], [54.1921228, 87.1237278], [54.1789137, 87.0602989],
-         [54.1825805, 87.02425],
-         [54.2010102, 87.0358372], [54.2203852, 87.0302582], [54.2388483, 87.0353222], [54.2184783, 87.053175],
-         [54.2306714, 87.0766926], [54.2441649, 87.0860481], [54.2286645, 87.101841], [54.236591, 87.1155739],
-         [54.232327, 87.1590042], [54.2277112, 87.1196079], [54.2153165, 87.1081066], [54.2176753, 87.1706772],
-         [54.2132587, 87.1471596], [54.177909, 87.1071625]])
-    locations_2 = np.array(
+    coordinates = np.array(
         [[54.177909, 87.1071625], [54.154644, 87.1895599], [54.209695, 87.1238995], [54.1900136, 87.0737743],
          [54.1626852, 87.1229553], [54.1491651, 87.1049309], [54.1433334, 87.1317959], [54.1380541, 87.171278],
          [54.1501202, 87.2331619], [54.162233, 87.1895599], [54.1770048, 87.2292137], [54.1927756, 87.2426033],
@@ -40,9 +29,10 @@ def main():
         return r * np.arccos(cos_lat_d - cos_lat1 * cos_lat2 * (1 - cos_lon_d))
 
     # creating distances matrix
-    distances_matrix = (np.array(spherical_dist(locations_1[:, None], locations_2)) * 1000).round(decimals=0)
-    # choosing number of locations
+    distances_matrix = (np.array(spherical_dist(coordinates[:, None], coordinates)) * 1000).round(decimals=0)
+    # choosing number of locations. n = number of locations + 1
     n = 31
+    # first and last locations are the same depot
     for i in range(n):
         distances_matrix[n - 1, i] = distances_matrix[0, i]
         distances_matrix[i, n - 1] = distances_matrix[i, 0]
@@ -59,9 +49,9 @@ def main():
             for j in range(n):
                 locations[i, j, k] = solver.IntVar(0, 1, 'x[%i,%i,%i]' % (i, j, k))
 
-    # order of visiting locations
+    # dict for order of visiting locations
     order = {}
-    # charge at each location
+    # list for charge at each location
     charge = [[[] for i in range(n)] for k in range(data['num_vehicles'])]
     for k in range(data['num_vehicles']):
         # 0,1,2,3 - depot and charging stations
@@ -140,27 +130,39 @@ def main():
     solver.set_time_limit(300000)
     solver.Solve()
 
-    # new_y, new_r - temporary variables
+    # temp_order, temp_charge, sorted_charge_for_k - temporary variables
     temp_order = {}
-    temp_charge = []
+    temp_charge = {}
     sorted_order = []
     sorted_charge = []
+    sorted_charge_for_k = []
     # placing route and charge data in lists for each vehicle
-    # в y не учтены зарядки совем?
     for k in range(data['num_vehicles']):
         temp_order[0] = 0
         for j in range(1, n - 1):
             if sum(locations[i, j, k].solution_value() for i in range(n - 1)) > 0:
                 temp_order[j] = order[k, j].solution_value()
-        # здесь j должны быть от 1?? почему от 4ех
+        # j start from 4 because charge stations dont have solution value
         for j in range(4, n):
             if sum(locations[i, j, k].solution_value() for i in range(n - 1)) > 0:
-                temp_charge.append(charge[k][j].solution_value())
+                temp_charge[j] = charge[k][j].solution_value()
+        temp_charge[0] = q
+        temp_charge[1] = q
+        temp_charge[2] = q
+        temp_charge[3] = q
         sorted_order.append(sorted(temp_order.items(), key=lambda kv: kv[1]))
-        sorted_charge.append(sorted(temp_charge, reverse=True))
-        # зачем клиар?
+        # placing charge values according to order
+        for loc in sorted(temp_order.items(), key=lambda kv: kv[1]):
+            sorted_charge_for_k.append(temp_charge[loc[0]])
+        try:
+            sorted_charge_for_k.append(temp_charge[n-1])
+        except:
+            pass
+        sorted_charge.append(sorted_charge_for_k.copy())
+        sorted_charge_for_k.clear()
         temp_order.clear()
         temp_charge.clear()
+
 
     # print results
     for k in range(data['num_vehicles']):
@@ -170,8 +172,8 @@ def main():
         for j in range(1, len(sorted_order[k])):
             print('%d -> ' % sorted_order[k][j][0], end='')
         print('%d' % (order[k, n - 1]), end='\n')
-        for i in range(len(sorted_charge[k])):
-            print('%d -> ' % sorted_charge[k][i], end='')
+        #     for i in range(len(sorted_charge[k])):
+        #         print('%d -> ' % sorted_charge[k][i], end='')
         print('\n')
 
     print('Total cost = ', solver.Objective().Value())
